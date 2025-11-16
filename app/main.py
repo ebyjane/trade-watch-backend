@@ -219,6 +219,10 @@ async def scheduled_job():
     run_scan()
 scheduler.add_job(scheduled_job, 'cron', hour=int(os.getenv("SCHEDULE_UTC","03:50").split(":")[0]), minute=int(os.getenv("SCHEDULE_UTC","03:50").split(":")[1]))
 
+@app.get("/")
+def home():
+    return {"status": "ok", "message": "Trade Watch Backend is running"}
+
 @app.on_event("startup")
 async def startup_event():
     scheduler.start()
