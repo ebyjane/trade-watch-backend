@@ -105,9 +105,29 @@ def run_scan(limit=SCAN_LIMIT):
             count += 1
         except Exception as e:
             print("compute error", e)
-    df_out = pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
+    # ---- SAFE DATAFRAME FIX ----
+    df_out = pd.DataFrame(rows)
+
+    # If no rows → write empty output safely
+    if df_out.empty:
+        print("⚠ No scan rows produced — writing empty CSV")
+        df_out = pd.DataFrame(columns=[
+            "ticker", "close", "score", "rsi", "ema_fast", "ema_slow", "mom5"
+        ])
+        df_out.to_csv(OUTPUT_FILE, index=False)
+        return df_out
+
+    # Ensure score column exists
+    if "score" not in df_out.columns:
+        print("⚠ Missing 'score' column — adding score=0")
+        df_out["score"] = 0.0
+
+    # Now safe to sort
+    df_out = df_out.sort_values("score", ascending=False).reset_index(drop=True)
+
     df_out.to_csv(OUTPUT_FILE, index=False)
     return df_out
+
 
 # ----- Auth: PIN and WebAuthn (best-effort minimal) -----
 def hash_pin(pin):
