@@ -11,6 +11,7 @@ import yfinance as yf
 from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from fastapi.middleware.cors import CORSMiddleware
 
 # ----- env -----
 ROOT = Path(__file__).parent.parent
@@ -26,6 +27,15 @@ if not CREDENTIALS_FILE.exists():
     CREDENTIALS_FILE.write_text("[]", encoding="utf-8")
 
 app = FastAPI(title="Trade Watch API")
+
+# add CORS (allow your frontend origin in production instead of "*")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # for production set to ["https://your-frontend-domain.com"]
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 # ----- simple scanner -----
 EMA_FAST = 9
