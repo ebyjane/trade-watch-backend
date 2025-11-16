@@ -1,8 +1,7 @@
-\
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import os, json, hashlib, base64, asyncio
+import os, json
 from dotenv import load_dotenv
 from pathlib import Path
 from datetime import datetime
@@ -19,7 +18,6 @@ load_dotenv(ROOT / ".env")
 EQUITY_CSV = os.getenv("EQUITY_CSV", str(ROOT / "/data/EQUITY_L.csv"))
 SCAN_LIMIT = int(os.getenv("SCAN_LIMIT", "200"))
 OUTPUT_FILE = ROOT / "data" / "daily_watchlist.csv"
-PIN_HASH_FILE = Path(os.getenv("PIN_HASH_FILE", str(ROOT / "data/pin_hash.txt")))
 CREDENTIALS_FILE = Path(os.getenv("CREDENTIALS_FILE", str(ROOT / "data/webauthn_credentials.json")))
 
 # Ensure data dir
@@ -105,90 +103,14 @@ def run_scan(limit=SCAN_LIMIT):
             count += 1
         except Exception as e:
             print("compute error", e)
-    # ---- SAFE DATAFRAME FIX ----
     df_out = pd.DataFrame(rows)
-
-    # If no rows → write empty output safely
     if df_out.empty:
-        print("⚠ No scan rows produced — writing empty CSV")
         df_out = pd.DataFrame(columns=[
             "ticker", "close", "score", "rsi", "ema_fast", "ema_slow", "mom5"
         ])
-        df_out.to_csv(OUTPUT_FILE, index=False)
-        return df_out
-
-    # Ensure score column exists
-    if "score" not in df_out.columns:
-        print("⚠ Missing 'score' column — adding score=0")
-        df_out["score"] = 0.0
-
-    # Now safe to sort
-    df_out = df_out.sort_values("score", ascending=False).reset_index(drop=True)
-
     df_out.to_csv(OUTPUT_FILE, index=False)
+    df_out = df_out.sort_values("score", ascending=False).reset_index(drop=True)
     return df_out
-
-
-# ----- Auth: PIN and WebAuthn (best-effort minimal) -----
-def hash_pin(pin):
-    return hashlib.sha256(pin.encode()).hexdigest()
-
-class PinModel(BaseModel):
-    pin: str
-
-@app.post("/api/auth/set_pin")
-async def set_pin(payload: PinModel):
-    pin = payload.pin.strip()
-    if not pin or len(pin) < 4:
-        raise HTTPException(status_code=400, detail="PIN too short")
-    PIN_HASH_FILE.write_text(hash_pin(pin))
-    return {"ok": True, "message": "PIN set. Keep it safe."}
-
-@app.post("/api/auth/login_pin")
-async def login_pin(payload: PinModel):
-    if not PIN_HASH_FILE.exists():
-        raise HTTPException(status_code=400, detail="PIN not set")
-    stored = PIN_HASH_FILE.read_text().strip()
-    if stored == hash_pin(payload.pin):
-        return {"ok": True}
-    else:
-        raise HTTPException(status_code=401, detail="Invalid PIN")
-
-# WebAuthn endpoints: we will store raw credential info client-side; full verification requires FIDO server validation.
-@app.get("/api/webauthn/credentials")
-async def get_credentials():
-    try:
-        data = json.loads(CREDENTIALS_FILE.read_text())
-    except Exception:
-        data = []
-    return {"credentials": data}
-
-class CredentialModel(BaseModel):
-    credential: dict
-
-@app.post("/api/webauthn/register")
-async def webauthn_register(payload: CredentialModel):
-    # store credential blob (client must perform registration via navigator.credentials)
-    try:
-        data = json.loads(CREDENTIALS_FILE.read_text())
-    except Exception:
-        data = []
-    data.append(payload.credential)
-    CREDENTIALS_FILE.write_text(json.dumps(data))
-    return {"ok": True}
-
-@app.post("/api/webauthn/authenticate")
-async def webauthn_authenticate(payload: CredentialModel):
-    # naive authentication: verify that credential id exists
-    try:
-        data = json.loads(CREDENTIALS_FILE.read_text())
-    except Exception:
-        data = []
-    cred_id = payload.credential.get("id")
-    for c in data:
-        if c.get("id") == cred_id:
-            return {"ok": True}
-    raise HTTPException(status_code=401, detail="Credential not registered")
 
 # ----- API endpoints -----
 @app.get("/api/scan")
@@ -217,7 +139,8 @@ scheduler = AsyncIOScheduler()
 async def scheduled_job():
     print("Running scheduled scan at", datetime.utcnow().isoformat())
     run_scan()
-scheduler.add_job(scheduled_job, 'cron', hour=int(os.getenv("SCHEDULE_UTC","03:50").split(":")[0]), minute=int(os.getenv("SCHEDULE_UTC","03:50").split(":")[1]))
+scheduler.add_job(scheduled_job, 'cron', hour=int(os.getenv("SCHEDULE_UTC","03:50").split(":")[0]),
+                  minute=int(os.getenv("SCHEDULE_UTC","03:50").split(":")[1]))
 
 @app.get("/")
 def home():
@@ -226,7 +149,5 @@ def home():
 @app.on_event("startup")
 async def startup_event():
     scheduler.start()
-    # ensure output exists
     if not OUTPUT_FILE.exists():
         run_scan(limit=50)
-
