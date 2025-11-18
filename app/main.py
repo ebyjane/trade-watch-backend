@@ -291,3 +291,4 @@ async def startup_event():
             ex.submit(run_scan)
     except Exception as e:
         logger.exception("Initial scan error: %s", e)
+        
